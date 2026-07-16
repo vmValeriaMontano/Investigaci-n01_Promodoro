@@ -1,24 +1,26 @@
 package com.example.investigacion01_promodoro
 
-
 import android.graphics.Color
 import android.graphics.Paint
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.Toast
+import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import com.example.investigacion01_promodoro.databinding.ActivityMainBinding
 import com.example.investigacion01_promodoro.databinding.ActivityItemTareaBinding
 import com.example.investigacion01_promodoro.databinding.ActivityItemHistorialBinding
+import com.example.investigacion01_promodoro.viewmodel.TareaViewModel
 
 class MainActivity : AppCompatActivity() {
 
     // Inicializamos la variable de View Binding para controlar la UI de manera segura
     private lateinit var binding: ActivityMainBinding
 
-    // Listas de datos temporales (Tu equipo las conectará al ViewModel luego)
-    private val listaDeTareas = mutableListOf<String>()
+    // El ViewModel retiene las tareas para que sobrevivan a la rotación de pantalla
+    // (reemplaza a la lista temporal de String que existía antes)
+    private val tareaViewModel: TareaViewModel by viewModels()
 
     // Lista de prueba para el historial (Agregamos un par de textos de ejemplo para que veas cómo se dibuja)
     private val listaDeHistorial = mutableListOf<String>()
@@ -38,15 +40,44 @@ class MainActivity : AppCompatActivity() {
             if (textoTarea.isEmpty()) {
                 Toast.makeText(this, "Por favor escribe una tarea válida", Toast.LENGTH_SHORT).show()
             } else {
-                listaDeTareas.add(textoTarea)
-                binding.etNuevaTarea.text.clear() // Limpiamos el campo de texto
-                actualizarInterfazTareas()
+                val agregada = tareaViewModel.agregarTarea(textoTarea)
+                if (agregada) {
+                    binding.etNuevaTarea.text.clear() // Limpiamos el campo de texto
+                    actualizarInterfazTareas()
+                }
             }
         }
 
         // Ejecución inicial para pintar las pantallas vacías
+        actualizarInterfazTareas() // Dibujamos las tareas que ya existan en el ViewModel al iniciar
         verificarEstadosVacios()
         actualizarInterfazHistorial() // Dibujamos el historial al iniciar
+    }
+
+    // CICLO DE VIDA DE LA ACTIVITY
+    override fun onStart() {
+        super.onStart()
+        android.util.Log.d("MainActivity_CicloVida", "onStart: la actividad se vuelve visible para el usuario")
+    }
+
+    override fun onResume() {
+        super.onResume()
+        android.util.Log.d("MainActivity_CicloVida", "onResume: la actividad pasa a primer plano e interactúa con el usuario")
+    }
+
+    override fun onPause() {
+        super.onPause()
+        android.util.Log.d("MainActivity_CicloVida", "onPause: la actividad deja de estar en primer plano")
+    }
+
+    override fun onStop() {
+        super.onStop()
+        android.util.Log.d("MainActivity_CicloVida", "onStop: la actividad ya no es visible para el usuario")
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        android.util.Log.d("MainActivity_CicloVida", "onDestroy: la actividad va a ser destruida")
     }
 
     // INFLACIÓN DINÁMICA DE TAREAS (Usa ActivityItemTareaBinding)
@@ -54,8 +85,11 @@ class MainActivity : AppCompatActivity() {
         // REGLA DE ORO: Limpiar el contenedor antes de dibujar para no duplicar vistas anteriores
         binding.contenedorTareas.removeAllViews()
 
+        // Obtenemos la lista actual de tareas desde el ViewModel
+        val tareas = tareaViewModel.obtenerTareas()
+
         // Recorremos los datos para generar las vistas una por una
-        for ((index, tarea) in listaDeTareas.withIndex()) {
+        for (tarea in tareas) {
 
             // Inflamos dinámicamente el layout individual usando la clase generada real: ActivityItemTareaBinding
             val itemBinding = ActivityItemTareaBinding.inflate(
@@ -65,31 +99,32 @@ class MainActivity : AppCompatActivity() {
             )
 
             // Modificamos el contenido del molde con el texto real
-            itemBinding.tvTituloTarea.text = tarea
+            itemBinding.tvTituloTarea.text = tarea.texto
+
+            // Reflejamos el estado actual guardado en el ViewModel (para que al rotar
+            // la pantalla el checkbox y el estilo tachado se vean correctos)
+            itemBinding.cbCompletada.setOnCheckedChangeListener(null)
+            itemBinding.cbCompletada.isChecked = tarea.completada
+            aplicarEstiloCompletada(itemBinding, tarea.completada)
 
             // Gestión interactiva del Checkbox (Tachado y Atenuado al completarse)
             itemBinding.cbCompletada.setOnCheckedChangeListener { _, isChecked ->
-                if (isChecked) {
-                    // Agregamos la bandera de tachado de texto y lo atenuamos
-                    itemBinding.tvTituloTarea.paintFlags = itemBinding.tvTituloTarea.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
-                    itemBinding.tvTituloTarea.setTextColor(Color.LTGRAY)
+                tareaViewModel.alternarCompletada(tarea.id)
+                aplicarEstiloCompletada(itemBinding, isChecked)
 
+                if (isChecked) {
                     // EJEMPLO: Cuando marcas una tarea como completada, simulamos que se va al historial
-                    val sesionCompletada = "Sesión completada en: $tarea"
+                    val sesionCompletada = "Sesión completada en: ${tarea.texto}"
                     if (!listaDeHistorial.contains(sesionCompletada)) {
                         listaDeHistorial.add(sesionCompletada)
                         actualizarInterfazHistorial() // Redibujamos el historial
                     }
-                } else {
-                    // Quitamos la bandera de tachado y restauramos el color negro
-                    itemBinding.tvTituloTarea.paintFlags = itemBinding.tvTituloTarea.paintFlags and Paint.STRIKE_THRU_TEXT_FLAG.inv()
-                    itemBinding.tvTituloTarea.setTextColor(Color.BLACK)
                 }
             }
 
             // Gestión interactiva de eliminación
             itemBinding.btnEliminar.setOnClickListener {
-                listaDeTareas.removeAt(index)
+                tareaViewModel.eliminarTarea(tarea.id)
                 actualizarInterfazTareas() // Redibuja la interfaz limpia
             }
 
@@ -99,6 +134,21 @@ class MainActivity : AppCompatActivity() {
 
         actualizarResumen()
         verificarEstadosVacios()
+    }
+
+    // Aplica el estilo de tachado/atenuado según si la tarea está completada.
+    // Se extrajo como función aparte porque el mismo código se repetía al pintar
+    // la tarea inicialmente y al hacer clic en el checkbox.
+    private fun aplicarEstiloCompletada(itemBinding: ActivityItemTareaBinding, completada: Boolean) {
+        if (completada) {
+            // Agregamos la bandera de tachado de texto y lo atenuamos
+            itemBinding.tvTituloTarea.paintFlags = itemBinding.tvTituloTarea.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
+            itemBinding.tvTituloTarea.setTextColor(Color.LTGRAY)
+        } else {
+            // Quitamos la bandera de tachado y restauramos el color negro
+            itemBinding.tvTituloTarea.paintFlags = itemBinding.tvTituloTarea.paintFlags and Paint.STRIKE_THRU_TEXT_FLAG.inv()
+            itemBinding.tvTituloTarea.setTextColor(Color.BLACK)
+        }
     }
 
     // HISTORIAL DINÁMIC
@@ -129,7 +179,7 @@ class MainActivity : AppCompatActivity() {
 
     // Muestra u oculta los mensajes de "estado vacío" cuando no hay datos
     private fun verificarEstadosVacios() {
-        if (listaDeTareas.isEmpty()) {
+        if (tareaViewModel.obtenerTareas().isEmpty()) {
             binding.tvTareasVacias.visibility = View.VISIBLE
         } else {
             binding.tvTareasVacias.visibility = View.GONE
@@ -144,7 +194,7 @@ class MainActivity : AppCompatActivity() {
 
     // Actualiza los contadores en tiempo real
     private fun actualizarResumen() {
-        val pendientes = listaDeTareas.size
+        val pendientes = tareaViewModel.obtenerTareas().size
         val completadas = listaDeHistorial.size
         binding.tvResumen.text = "$pendientes pendientes · $completadas sesiones completadas"
     }
