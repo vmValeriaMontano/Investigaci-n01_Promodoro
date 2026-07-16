@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--Pantallita para tareas contiene checkbos para completar, un título
+y un btn de eliminar-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingTop="12dp"
+    android:paddingBottom="12dp"
+    android:background="@android:color/transparent">
+
+    <CheckBox
+        android:id="@+id/cbCompletada"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="8dp" />
+
+    <TextView
+        android:id="@+id/tvTituloTarea"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:text="Nombre de la tarea"
+        android:textSize="16sp"
+        android:textColor="#000000" />
+    <!--layout_weight="1" nos permite que el txt ocupe todod el
+     espacio del reglón, nos ayuda a que si una tarea en muy larga
+     autmoaticamente se ajuste -->
+
+    <ImageButton
+        android:id="@+id/btnEliminar"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:src="@android:drawable/ic_menu_delete"
+        android:background="?android:attr/selectableItemBackground"
+        android:contentDescription="Eliminar tarea"
+        android:tint="#757575" />
+</LinearLayout>
+<!--Unamos un archivo para que se pueda reutilizar infinitas veces sin la
+necesidad de duplicar el código manualmente en la pagina principal-->
