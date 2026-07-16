@@ -15,3 +15,5 @@
         android:textColor="#555555"
         android:textSize="15sp" />
 </LinearLayout>
+<!--Aqui se hace que cada que se termine un temporizador promodoro,
+la aplicaion ponga nombre de la tarea y lo agrege abajo del historial-->

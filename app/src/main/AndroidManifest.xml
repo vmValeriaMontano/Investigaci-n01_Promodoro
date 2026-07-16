@@ -11,12 +11,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Investigacion01_Promodoro">
-        <activity
-            android:name=".item_historial"
-            android:exported="false" />
-        <activity
-            android:name=".item_tarea"
-            android:exported="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true">
