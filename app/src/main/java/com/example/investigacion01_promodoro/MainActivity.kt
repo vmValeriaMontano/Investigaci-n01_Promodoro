@@ -1,99 +1,201 @@
 package com.example.investigacion01_promodoro
 
-
+import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Paint
+import android.os.Build
 import android.os.Bundle
+import android.os.CountDownTimer
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import com.example.investigacion01_promodoro.databinding.ActivityMainBinding
 import com.example.investigacion01_promodoro.databinding.ActivityItemTareaBinding
 import com.example.investigacion01_promodoro.databinding.ActivityItemHistorialBinding
+import com.example.investigacion01_promodoro.model.Tarea
+import com.example.investigacion01_promodoro.viewmodel.TareaViewModel
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
-    // Inicializamos la variable de View Binding para controlar la UI de manera segura
     private lateinit var binding: ActivityMainBinding
 
-    // Listas de datos temporales (Tu equipo las conectará al ViewModel luego)
-    private val listaDeTareas = mutableListOf<String>()
+    // El ViewModel retiene las tareas Y el estado del temporizador para
+    // que sobrevivan a la rotación de pantalla
+    private val tareaViewModel: TareaViewModel by viewModels()
 
-    // Lista de prueba para el historial (Agregamos un par de textos de ejemplo para que veas cómo se dibuja)
     private val listaDeHistorial = mutableListOf<String>()
+
+    // El objeto CountDownTimer en sí NO se puede guardar en el ViewModel
+    // (no sobrevive rotación), por eso se recrea cada vez usando el
+    // tiempo restante que sí está guardado en el ViewModel.
+    private val duracionTotalMillis = 25 * 60 * 1000L // 25 minutos
+    private var temporizador: CountDownTimer? = null
+
+    private var tareaActivaTexto: String? = null
+    private val CANAL_ID = "pomodoro_channel"
+    private val solicitarPermisoNotificaciones =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+    private val gson = Gson()
+    private val PREFS_NAME = "pomodoro_prefs"
+    private val KEY_TAREAS = "key_tareas"
+    private val KEY_HISTORIAL = "key_historial"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Inflamos el XML principal y configuramos la vista de la pantalla
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Configuración del botón AGREGAR
+        crearCanalNotificacion()
+        pedirPermisoNotificaciones()
+
+        // Solo cargamos desde disco si el ViewModel todavía no tiene nada
+        // (primera vez que se abre la app, no venimos de rotar pantalla)
+        if (tareaViewModel.obtenerTareas().isEmpty()) {
+            cargarDatos()
+        }
+
         binding.btnAgregarTarea.setOnClickListener {
             val textoTarea = binding.etNuevaTarea.text.toString().trim()
-
-            // REQUISITO: Validar que no se agreguen textos vacíos
             if (textoTarea.isEmpty()) {
                 Toast.makeText(this, "Por favor escribe una tarea válida", Toast.LENGTH_SHORT).show()
             } else {
-                listaDeTareas.add(textoTarea)
-                binding.etNuevaTarea.text.clear() // Limpiamos el campo de texto
-                actualizarInterfazTareas()
+                val agregada = tareaViewModel.agregarTarea(textoTarea)
+                if (agregada) {
+                    binding.etNuevaTarea.text.clear()
+                    actualizarInterfazTareas()
+                }
             }
         }
 
-        // Ejecución inicial para pintar las pantallas vacías
+        binding.btnStart.setOnClickListener { iniciarTemporizador() }
+        binding.btnPause.setOnClickListener { pausarTemporizador() }
+        binding.btnResume.setOnClickListener { reanudarTemporizador() }
+        binding.btnReset.setOnClickListener { reiniciarTemporizador() }
+
+        actualizarInterfazTareas()
+        actualizarTextoTimer() // refleja el tiempo guardado en el ViewModel (importante tras rotar)
         verificarEstadosVacios()
-        actualizarInterfazHistorial() // Dibujamos el historial al iniciar
+        actualizarInterfazHistorial()
     }
 
-    // INFLACIÓN DINÁMICA DE TAREAS (Usa ActivityItemTareaBinding)
+
+    override fun onStart() {
+        super.onStart()
+        android.util.Log.d("MainActivity_CicloVida", "onStart: la actividad se vuelve visible para el usuario")
+
+        // INICIALIZACIÓN DE RECURSO: si el temporizador estaba corriendo antes
+        // de que la Activity se detuviera (onStop), lo recreamos aquí usando
+        // el tiempo real transcurrido mientras estuvo fuera.
+        if (tareaViewModel.temporizadorActivo && tareaViewModel.momentoDePausa != 0L) {
+            val tiempoTranscurridoReal = System.currentTimeMillis() - tareaViewModel.momentoDePausa
+            tareaViewModel.tiempoRestanteMillis -= tiempoTranscurridoReal
+            tareaViewModel.momentoDePausa = 0L
+
+            if (tareaViewModel.tiempoRestanteMillis > 0) {
+                iniciarTemporizador()
+            } else {
+                tareaViewModel.tiempoRestanteMillis = 0
+                tareaViewModel.temporizadorActivo = false
+                actualizarTextoTimer()
+                registrarSesionCompletada()
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        android.util.Log.d("MainActivity_CicloVida", "onResume: la actividad pasa a primer plano e interactúa con el usuario")
+    }
+
+    override fun onPause() {
+        super.onPause()
+        android.util.Log.d("MainActivity_CicloVida", "onPause: la actividad deja de estar en primer plano")
+        // No se libera ningún recurso aquí a propósito: este callback es
+        // demasiado breve para garantizar que una operación termine antes
+        // de que el sistema continúe (ver justificación en el README).
+    }
+
+    override fun onStop() {
+        super.onStop()
+        android.util.Log.d("MainActivity_CicloVida", "onStop: la actividad ya no es visible para el usuario")
+
+        guardarDatos()
+
+        // LIBERACIÓN DE RECURSO: cancelamos el CountDownTimer para no dejarlo
+        // corriendo innecesariamente mientras la app no es visible. Guardamos
+        // el momento exacto para poder recalcular el tiempo real en onStart().
+        if (tareaViewModel.temporizadorActivo) {
+            temporizador?.cancel()
+            tareaViewModel.momentoDePausa = System.currentTimeMillis()
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        android.util.Log.d("MainActivity_CicloVida", "onDestroy: la actividad va a ser destruida")
+    }
+
+
     private fun actualizarInterfazTareas() {
-        // REGLA DE ORO: Limpiar el contenedor antes de dibujar para no duplicar vistas anteriores
         binding.contenedorTareas.removeAllViews()
 
-        // Recorremos los datos para generar las vistas una por una
-        for ((index, tarea) in listaDeTareas.withIndex()) {
+        val tareas = tareaViewModel.obtenerTareas()
 
-            // Inflamos dinámicamente el layout individual usando la clase generada real: ActivityItemTareaBinding
+        for (tarea in tareas) {
             val itemBinding = ActivityItemTareaBinding.inflate(
                 LayoutInflater.from(this),
                 binding.contenedorTareas,
                 false
             )
 
-            // Modificamos el contenido del molde con el texto real
-            itemBinding.tvTituloTarea.text = tarea
+            itemBinding.tvTituloTarea.text = tarea.texto
+            itemBinding.cbCompletada.setOnCheckedChangeListener(null)
+            itemBinding.cbCompletada.isChecked = tarea.completada
+            aplicarEstiloCompletada(itemBinding, tarea.completada)
 
-            // Gestión interactiva del Checkbox (Tachado y Atenuado al completarse)
+            itemBinding.root.setOnClickListener {
+                tareaViewModel.seleccionarTareaActiva(tarea.id)
+                seleccionarTareaActiva(tarea.texto)
+            }
+
             itemBinding.cbCompletada.setOnCheckedChangeListener { _, isChecked ->
-                if (isChecked) {
-                    // Agregamos la bandera de tachado de texto y lo atenuamos
-                    itemBinding.tvTituloTarea.paintFlags = itemBinding.tvTituloTarea.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
-                    itemBinding.tvTituloTarea.setTextColor(Color.LTGRAY)
+                tareaViewModel.alternarCompletada(tarea.id)
+                aplicarEstiloCompletada(itemBinding, isChecked)
 
-                    // EJEMPLO: Cuando marcas una tarea como completada, simulamos que se va al historial
-                    val sesionCompletada = "Sesión completada en: $tarea"
+                if (isChecked) {
+                    val sesionCompletada = "Sesión completada en: ${tarea.texto}"
                     if (!listaDeHistorial.contains(sesionCompletada)) {
                         listaDeHistorial.add(sesionCompletada)
-                        actualizarInterfazHistorial() // Redibujamos el historial
+                        actualizarInterfazHistorial()
                     }
-                } else {
-                    // Quitamos la bandera de tachado y restauramos el color negro
-                    itemBinding.tvTituloTarea.paintFlags = itemBinding.tvTituloTarea.paintFlags and Paint.STRIKE_THRU_TEXT_FLAG.inv()
-                    itemBinding.tvTituloTarea.setTextColor(Color.BLACK)
                 }
             }
 
-            // Gestión interactiva de eliminación
             itemBinding.btnEliminar.setOnClickListener {
-                listaDeTareas.removeAt(index)
-                actualizarInterfazTareas() // Redibuja la interfaz limpia
+                tareaViewModel.eliminarTarea(tarea.id)
+                if (tareaViewModel.obtenerTareaActivaId() == null) {
+                    tareaActivaTexto = null
+                    binding.tvTareaActiva.text = "Sin tarea activa seleccionada"
+                }
+                actualizarInterfazTareas()
             }
 
-            // Agregamos físicamente la nueva vista al contenedor del diseño principal
             binding.contenedorTareas.addView(itemBinding.root)
         }
 
@@ -101,25 +203,27 @@ class MainActivity : AppCompatActivity() {
         verificarEstadosVacios()
     }
 
-    // HISTORIAL DINÁMIC
+    private fun aplicarEstiloCompletada(itemBinding: ActivityItemTareaBinding, completada: Boolean) {
+        if (completada) {
+            itemBinding.tvTituloTarea.paintFlags = itemBinding.tvTituloTarea.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
+            itemBinding.tvTituloTarea.setTextColor(Color.LTGRAY)
+        } else {
+            itemBinding.tvTituloTarea.paintFlags = itemBinding.tvTituloTarea.paintFlags and Paint.STRIKE_THRU_TEXT_FLAG.inv()
+            itemBinding.tvTituloTarea.setTextColor(Color.BLACK)
+        }
+    }
+
+
     private fun actualizarInterfazHistorial() {
-        // Limpiamos el contenedor
         binding.contenedorHistorial.removeAllViews()
 
-        // Recorremos la lista del historial
         for (sesion in listaDeHistorial) {
-
             val historialBinding = ActivityItemHistorialBinding.inflate(
                 LayoutInflater.from(this),
                 binding.contenedorHistorial,
                 false
             )
-
-            // Texto de la sesión realizada (Verifica que activity_item_historial.xml
-            // el id sea tvHistorialItem)
             historialBinding.tvHistorialItem.text = "• $sesion"
-
-            // Metemos la fila del historial en el LinearLayout del activity_main.xml
             binding.contenedorHistorial.addView(historialBinding.root)
         }
 
@@ -127,25 +231,152 @@ class MainActivity : AppCompatActivity() {
         verificarEstadosVacios()
     }
 
-    // Muestra u oculta los mensajes de "estado vacío" cuando no hay datos
     private fun verificarEstadosVacios() {
-        if (listaDeTareas.isEmpty()) {
-            binding.tvTareasVacias.visibility = View.VISIBLE
-        } else {
-            binding.tvTareasVacias.visibility = View.GONE
-        }
+        binding.tvTareasVacias.visibility =
+            if (tareaViewModel.obtenerTareas().isEmpty()) View.VISIBLE else View.GONE
+        binding.tvHistorialVacio.visibility =
+            if (listaDeHistorial.isEmpty()) View.VISIBLE else View.GONE
+    }
 
-        if (listaDeHistorial.isEmpty()) {
-            binding.tvHistorialVacio.visibility = View.VISIBLE
-        } else {
-            binding.tvHistorialVacio.visibility = View.GONE
+    private fun actualizarResumen() {
+        val pendientes = tareaViewModel.obtenerTareas().size
+        val completadas = listaDeHistorial.size
+        binding.tvResumen.text = "$pendientes pendientes · $completadas sesiones completadas"
+    }
+
+
+    private fun iniciarTemporizador() {
+        temporizador = object : CountDownTimer(tareaViewModel.tiempoRestanteMillis, 1000) {
+            override fun onTick(millisRestantes: Long) {
+                tareaViewModel.tiempoRestanteMillis = millisRestantes
+                actualizarTextoTimer()
+            }
+            override fun onFinish() {
+                tareaViewModel.tiempoRestanteMillis = 0
+                actualizarTextoTimer()
+                tareaViewModel.temporizadorActivo = false
+                registrarSesionCompletada()
+            }
+        }.start()
+        tareaViewModel.temporizadorActivo = true
+    }
+
+    private fun pausarTemporizador() {
+        temporizador?.cancel()
+        tareaViewModel.temporizadorActivo = false
+    }
+
+    private fun reanudarTemporizador() {
+        if (!tareaViewModel.temporizadorActivo && tareaViewModel.tiempoRestanteMillis > 0) {
+            iniciarTemporizador()
         }
     }
 
-    // Actualiza los contadores en tiempo real
-    private fun actualizarResumen() {
-        val pendientes = listaDeTareas.size
-        val completadas = listaDeHistorial.size
-        binding.tvResumen.text = "$pendientes pendientes · $completadas sesiones completadas"
+    private fun reiniciarTemporizador() {
+        temporizador?.cancel()
+        tareaViewModel.tiempoRestanteMillis = duracionTotalMillis
+        tareaViewModel.temporizadorActivo = false
+        actualizarTextoTimer()
+    }
+
+    private fun actualizarTextoTimer() {
+        val minutos = (tareaViewModel.tiempoRestanteMillis / 1000) / 60
+        val segundos = (tareaViewModel.tiempoRestanteMillis / 1000) % 60
+        binding.tvTimer.text = String.format("%02d:%02d", minutos, segundos)
+    }
+
+    // ==================== TAREA ACTIVA + NOTIFICACIONES ====================
+
+    private fun crearCanalNotificacion() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val canal = NotificationChannel(
+                CANAL_ID,
+                "Sesiones Pomodoro",
+                NotificationManager.IMPORTANCE_HIGH
+            )
+            canal.description = "Avisa cuando termina una sesión de enfoque"
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(canal)
+        }
+    }
+
+    private fun pedirPermisoNotificaciones() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val yaTienePermiso = ActivityCompat.checkSelfPermission(
+                this, Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+
+            if (!yaTienePermiso) {
+                solicitarPermisoNotificaciones.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
+    private fun seleccionarTareaActiva(tarea: String) {
+        tareaActivaTexto = tarea
+        binding.tvTareaActiva.text = "Enfocado en: $tarea"
+    }
+
+    private fun registrarSesionCompletada() {
+        val tarea = tareaActivaTexto ?: "una tarea sin nombre"
+        val hora = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+        val sesion = "Sesión completada: $tarea — $hora"
+
+        listaDeHistorial.add(sesion)
+        actualizarInterfazHistorial()
+        mostrarNotificacionFinalizado(tarea)
+    }
+
+    private fun mostrarNotificacionFinalizado(tarea: String) {
+        val notificacion = NotificationCompat.Builder(this, CANAL_ID)
+            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setContentTitle("¡Sesión terminada!")
+            .setContentText("Completaste una sesión de: $tarea")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .build()
+
+        val yaTienePermiso = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                ActivityCompat.checkSelfPermission(
+                    this, Manifest.permission.POST_NOTIFICATIONS
+                ) == PackageManager.PERMISSION_GRANTED
+
+        if (yaTienePermiso) {
+            NotificationManagerCompat.from(this).notify(1, notificacion)
+        }
+    }
+
+
+    private fun guardarDatos() {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val jsonTareas = gson.toJson(tareaViewModel.obtenerTareas())
+        val jsonHistorial = gson.toJson(listaDeHistorial)
+        prefs.edit()
+            .putString(KEY_TAREAS, jsonTareas)
+            .putString(KEY_HISTORIAL, jsonHistorial)
+            .apply()
+    }
+
+    private fun cargarDatos() {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val jsonTareas = prefs.getString(KEY_TAREAS, null)
+        val jsonHistorial = prefs.getString(KEY_HISTORIAL, null)
+
+        try {
+            if (jsonTareas != null) {
+                val tipoListaTareas = object : TypeToken<List<Tarea>>() {}.type
+                val tareasGuardadas: List<Tarea> = gson.fromJson(jsonTareas, tipoListaTareas)
+                tareaViewModel.cargarTareas(tareasGuardadas)
+            }
+
+            if (jsonHistorial != null) {
+                val tipoListaHistorial = object : TypeToken<MutableList<String>>() {}.type
+                val historialGuardado: MutableList<String> = gson.fromJson(jsonHistorial, tipoListaHistorial)
+                listaDeHistorial.clear()
+                listaDeHistorial.addAll(historialGuardado)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "No se pudieron cargar datos guardados, se ignoran", e)
+        }
     }
 }

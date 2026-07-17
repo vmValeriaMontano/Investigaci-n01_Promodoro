@@ -47,4 +47,7 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+    implementation("com.google.code.gson:gson:2.11.0")
+    implementation("androidx.activity:activity-ktx:1.13.0")
+    implementation("com.google.code.gson:gson:2.11.0")
 }
