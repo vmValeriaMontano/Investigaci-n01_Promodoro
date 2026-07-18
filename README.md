@@ -30,3 +30,26 @@ el temporizador Pomodoro y se gestionan las tareas.
   configuración como rotar la pantalla.
 
 ## Estado del ViewModel
+
+**Qué guarda:** TareaViewModel retiene la lista de tareas y el estado
+del temporizador (tiempoRestanteMillis, temporizadorActivo,
+momentoDePausa), para que ninguno se pierda ni se duplique al rotar
+la pantalla.
+
+**Por qué el CountDownTimer no se guarda ahí:** no sobrevive cuando la
+Activity se destruye. En su lugar se guarda solo lo necesario para
+volver a crearlo: cuánto tiempo quedaba y si estaba corriendo.
+
+**Al pausar (onStop):** si el temporizador está activo, se cancela y
+se guarda el momento exacto en que se pausó. Se usa onStop y no
+onPause porque este último se dispara con interrupciones muy breves,
+como una notificación.
+
+**Al reanudar (onStart):** se calcula cuánto tiempo pasó realmente
+desde la pausa y se le resta al tiempo restante antes de volver a
+crear el CountDownTimer. Así el conteo sigue siendo exacto aunque el
+usuario haya minimizado la app varios minutos.
+
+Esta simetría entre onStop y onStart es lo que evita que el
+temporizador se duplique o se desincronice al rotar la pantalla o
+minimizar la app.
