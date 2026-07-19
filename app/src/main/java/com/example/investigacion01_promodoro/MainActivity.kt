@@ -70,6 +70,17 @@ class MainActivity : AppCompatActivity() {
             cargarDatos()
         }
 
+        // OBSERVADOR DEL VIEWMODEL: Escucha y restaura automáticamente la tarea activa al rotar la pantalla
+        tareaViewModel.tareaActivaTexto.observe(this) { texto ->
+            if (texto == "Sin tarea activa seleccionada") {
+                tareaActivaTexto = null
+                binding.tvTareaActiva.text = texto
+            } else {
+                tareaActivaTexto = texto
+                binding.tvTareaActiva.text = "Enfocado en: $texto"
+            }
+        }
+
         binding.btnAgregarTarea.setOnClickListener {
             val textoTarea = binding.etNuevaTarea.text.toString().trim()
             if (textoTarea.isEmpty()) {
@@ -171,7 +182,6 @@ class MainActivity : AppCompatActivity() {
 
             itemBinding.root.setOnClickListener {
                 tareaViewModel.seleccionarTareaActiva(tarea.id)
-                seleccionarTareaActiva(tarea.texto)
             }
 
             itemBinding.cbCompletada.setOnCheckedChangeListener { _, isChecked ->
@@ -189,10 +199,6 @@ class MainActivity : AppCompatActivity() {
 
             itemBinding.btnEliminar.setOnClickListener {
                 tareaViewModel.eliminarTarea(tarea.id)
-                if (tareaViewModel.obtenerTareaActivaId() == null) {
-                    tareaActivaTexto = null
-                    binding.tvTareaActiva.text = "Sin tarea activa seleccionada"
-                }
                 actualizarInterfazTareas()
             }
 
@@ -310,11 +316,6 @@ class MainActivity : AppCompatActivity() {
                 solicitarPermisoNotificaciones.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
-    }
-
-    private fun seleccionarTareaActiva(tarea: String) {
-        tareaActivaTexto = tarea
-        binding.tvTareaActiva.text = "Enfocado en: $tarea"
     }
 
     private fun registrarSesionCompletada() {

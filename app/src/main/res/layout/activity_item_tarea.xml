@@ -2,6 +2,7 @@
 <!--Pantallita para tareas contiene checkbos para completar, un título
 y un btn de eliminar-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
@@ -35,7 +36,7 @@ y un btn de eliminar-->
         android:src="@android:drawable/ic_menu_delete"
         android:background="?android:attr/selectableItemBackground"
         android:contentDescription="Eliminar tarea"
-        android:tint="#757575" />
+        app:tint="#FF0000" />
 </LinearLayout>
 <!--Unamos un archivo para que se pueda reutilizar infinitas veces sin la
 necesidad de duplicar el código manualmente en la pagina principal-->
