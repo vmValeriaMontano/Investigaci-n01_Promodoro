@@ -1,4 +1,22 @@
 # Investigaci-n01_Promodoro
+
+## Diseño de Interfaz e Inflación Dinámica (Frontend)
+
+Para el desarrollo de la interfaz de usuario de la aplicación Pomodoro, se adoptó un enfoque modular y dinámico basado en las mejores prácticas de Android:
+
+### Justificación de Componentes Reutilizables
+Los diseños individuales de las tareas (`activity_item_tarea.xml`) y del historial (`activity_item_historial.xml`) se separaron en archivos XML independientes debido a los siguientes beneficios técnicos:
+* **Principio de Responsabilidad Única:** Evita sobrecargar el archivo `activity_main.xml` con estructuras repetitivas, manteniendo el código limpio y mantenible.
+* **Reutilización de Código:** Actúan como moldes genéricos que se clonan en memoria de forma consecutiva según la cantidad de elementos requeridos.
+* **Modularidad Estética:** Facilita la modificación o el rediseño visual de una sola fila (por ejemplo, cambiar el color del Checkbox o espaciados) sin alterar el comportamiento o estructura del contenedor principal.
+
+### Justificación de la Inflación Dinámica de Vistas
+En lugar de utilizar componentes estáticos, se implementó la **inflación dinámica en tiempo de ejecución** mediante `LayoutInflater` y **View Binding** por las siguientes razones analíticas:
+* **Eficiencia de Memoria:** La aplicación no necesita reservar espacio ni renderizar elementos invisibles de forma anticipada. Las vistas se crean e insertan físicamente en los contenedores (`contenedorTareas` y `contenedorHistorial`) únicamente cuando el usuario agrega datos reales.
+* **Sincronización Segura de Datos:** Al utilizar View Binding (`ActivityItemTareaBinding` y `ActivityItemHistorialBinding`), se elimina por completo el uso de `findViewById()`, lo que garantiza accesos seguros en tiempo de compilación a los elementos internos (como los contadores, textos y selectores de estado activo) previniendo errores de tipo *NullPointerException*.
+* **Persistencia Reactiva ante Rotaciones:** La interfaz responde de forma limpia y reactiva a la arquitectura del proyecto; al combinarse con `LiveData` en el `TareaViewModel`, los textos dinámicos (como la tarea activa seleccionada) se repintan automáticamente tras la destrucción y recreación de la Activity durante un giro de pantalla sin perder el enfoque del usuario.
+
+---
 ## Ciclo de vida de la Activity
 
 La pantalla principal de la app (MainActivity) implementa los seis
