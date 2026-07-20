@@ -71,3 +71,9 @@ usuario haya minimizado la app varios minutos.
 Esta simetría entre onStop y onStart es lo que evita que el
 temporizador se duplique o se desincronice al rotar la pantalla o
 minimizar la app.
+
+## Video de explicación
+
+Enlace al video donde se explica la resolución de los 12 pasos:
+
+[Ver video]https://youtu.be/DSA43X4fqow?si=mM-RmP3CQu9gh3g8
